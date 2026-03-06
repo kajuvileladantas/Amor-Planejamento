@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { 
-  Users, 
+import { LogOut, Users, 
   Truck, 
   Heart, 
   Palmtree, 
@@ -43,7 +42,11 @@ import {
   Pie
 } from 'recharts';
 import { cn } from './types';
-import type { Supplier, Guest, HoneymoonItem, DecorationItem, ChecklistItem, WeddingConfig, HomeItem, Invitation, Child, FinanceItem, MusicItem } from './types';
+import type { Supplier, Guest, HoneymoonItem, DecorationItem, ChecklistItem, WeddingConfig, HomeItem, Invitation, Child, FinanceItem, MusicItem, UserProfile } from './types';
+import { auth, onAuthStateChanged, signOut, db, doc, getDoc } from './lib/firebase';
+import { SplashScreen } from './components/auth/SplashScreen';
+import { LoginScreen } from './components/auth/LoginScreen';
+import { RegisterScreen } from './components/auth/RegisterScreen';
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '';
@@ -53,8 +56,70 @@ const formatDate = (dateStr: string) => {
 };
 
 export default function App() {
+  const [showSplash, setShowSplash] = useState(true);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authView, setAuthView] = useState<'login' | 'register'>('login');
   const [activeTab, setActiveTab] = useState<'cover' | 'wedding' | 'suppliers' | 'guests' | 'honeymoon' | 'decoration' | 'checklist' | 'settings' | 'homeItems' | 'invitations' | 'finances' | 'music'>('cover');
-  
+
+  // Auth Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      try {
+        if (firebaseUser) {
+          // Fetch user profile from Firestore
+          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          if (userDoc.exists()) {
+            setUser(userDoc.data() as UserProfile);
+          } else {
+            // Fallback if doc doesn't exist yet (e.g. Google login race condition)
+            setUser({
+              uid: firebaseUser.uid,
+              name: firebaseUser.displayName || 'Usuário',
+              email: firebaseUser.email || '',
+              createdAt: new Date()
+            });
+          }
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error("Erro ao carregar perfil:", error);
+        // Em caso de erro, ainda permitimos que o usuário veja a interface básica
+        if (firebaseUser) {
+          setUser({
+            uid: firebaseUser.uid,
+            name: firebaseUser.displayName || 'Usuário',
+            email: firebaseUser.email || '',
+            createdAt: new Date()
+          });
+        }
+      } finally {
+        setAuthLoading(false);
+      }
+    });
+
+    // Timeout de segurança: se o Firebase demorar mais de 10 segundos para responder,
+    // forçamos a saída da tela de carregamento para não travar o usuário.
+    const timeout = setTimeout(() => {
+      setAuthLoading(false);
+    }, 10000);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timeout);
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      setActiveTab('cover');
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
   // State for data
   const [weddingConfig, setWeddingConfig] = useState<WeddingConfig>(() => {
     const defaultConfig = {
@@ -300,8 +365,56 @@ export default function App() {
     { id: 'settings', label: weddingConfig.tabNames?.settings || 'Ajustes', icon: Settings },
   ];
 
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-wedding-cream flex items-center justify-center">
+        <motion.div 
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+          className="w-12 h-12 border-4 border-wedding-rose border-t-transparent rounded-full"
+        />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return authView === 'login' ? (
+      <LoginScreen 
+        onNavigateToRegister={() => setAuthView('register')} 
+        onLoginSuccess={() => {}} 
+      />
+    ) : (
+      <RegisterScreen 
+        onNavigateToLogin={() => setAuthView('login')} 
+        onRegisterSuccess={() => {}} 
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen pb-24 bg-stone-50/50">
+      {/* User Bar */}
+      <div className="absolute top-4 right-4 z-[60] flex items-center gap-3 bg-white/60 backdrop-blur-sm px-4 py-2 rounded-full border border-stone-200 shadow-sm">
+        <div className="w-8 h-8 bg-wedding-rose/10 rounded-full flex items-center justify-center text-wedding-rose">
+          <User size={16} />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-xs font-bold text-stone-800 leading-none">{user.name}</span>
+          <span className="text-[10px] text-stone-500">{user.email}</span>
+        </div>
+        <button 
+          onClick={handleLogout}
+          className="ml-2 p-1.5 text-stone-400 hover:text-red-500 transition-colors"
+          title="Sair"
+        >
+          <LogOut size={16} />
+        </button>
+      </div>
+
       {/* Header with Cover Photo */}
       <div className="relative h-80 md:h-[450px] w-full overflow-hidden">
         {weddingConfig.coverPhoto ? (

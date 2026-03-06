@@ -110,6 +110,13 @@ export interface MusicItem {
   link?: string;
 }
 
+export interface UserProfile {
+  uid: string;
+  name: string;
+  email: string;
+  createdAt: any;
+}
+
 export interface Child {
   gender: 'boy' | 'girl';
   age: number;
